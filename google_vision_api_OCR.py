@@ -1,3 +1,42 @@
+import cv2
+import numpy as np
+from matplotlib import pyplot as plt
+
+def preprocess_image(image_path):
+    # Load the image
+    image = cv2.imread(image_path)
+
+    # Convert to grayscale
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Apply Gaussian Blur to reduce noise
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # Apply Adaptive Thresholding for better contrast
+    thresh = cv2.adaptiveThreshold(
+        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
+    )
+
+    # Use Morphological Operations to clean noise
+    kernel = np.ones((2, 2), np.uint8)
+    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+
+    # Display the processed images
+    plt.figure(figsize=(10, 4))
+    plt.subplot(1, 3, 1), plt.imshow(gray, cmap='gray'), plt.title("Grayscale")
+    plt.subplot(1, 3, 2), plt.imshow(thresh, cmap='gray'), plt.title("Thresholded")
+    plt.subplot(1, 3, 3), plt.imshow(cleaned, cmap='gray'), plt.title("Denoised")
+    plt.show()
+
+    return cleaned
+
+# Preprocess and save the cleaned image
+preprocessed_image = preprocess_image("HongKong_ID.png")
+cv2.imwrite("preprocessed_id.png", preprocessed_image)
+
+
+
+
 ocr_script.py
 
 import sys
