@@ -90,3 +90,77 @@ public class ImgOcrController {
         return ResponseEntity.ok(extractedData);
     }
 }
+
+
+
+import uuid
+import json
+from imgocr import ImgOcr
+
+def extract_hk_id_info(ocr_result):
+    extracted_data = {
+        "documentType": "national_identity_card",
+        "issuingCountry": "HKG",
+        "documentNumber": None,
+        "fullName": None,
+        "firstName": None,
+        "middleName": None,
+        "lastName": None,
+        "gender": None,
+        "dateOfBirth": None,
+        "dateOfExpiry": None,
+        "dobSymbol": None,
+        "issuingDate": None,
+        "personalNumber": None
+    }
+
+    # Helper function to clean text
+    def clean_text(text):
+        return text.strip().replace(" ", "")
+
+    for entry in ocr_result:
+        text = entry['text']
+
+        if "PERMANENTIDENTITYCARD" in text or "HONGKONGPERMANENTIDENTITYCARD" in text:
+            extracted_data["documentType"] = "national_identity_card"
+            extracted_data["issuingCountry"] = "HKG"
+        elif text.replace(" ", "").isdigit() and len(text.replace(" ", "")) > 10:
+            extracted_data["personalNumber"] = clean_text(text)
+        elif "-" in text and len(text.split("-")) == 3:
+            if "DBth" in text or "出生日期" in text:
+                extracted_data["dateOfBirth"] = text.replace("DBth", "").strip()
+            else:
+                extracted_data["issuingDate"] = text.strip()
+        elif "(" in text and ")" in text:
+            extracted_data["documentNumber"] = text.strip()
+        elif len(text.split(",")) == 2:
+            extracted_data["lastName"], extracted_data["firstName"] = map(str.strip, text.split(","))
+            extracted_data["fullName"] = extracted_data["firstName"] + " " + extracted_data["lastName"]
+        elif "AZ" in text:
+            extracted_data["dobSymbol"] = text.strip()
+
+    # Construct final JSON output
+    formatted_output = {
+        "documentId": str(uuid.uuid4()),
+        "documentClassification": {
+            "documentType": extracted_data["documentType"],
+            "issuingCountry": extracted_data["issuingCountry"],
+            "version": "2018"
+        },
+        "extractedOcrData": extracted_data
+    }
+
+    return json.dumps(formatted_output, indent=4, ensure_ascii=False)
+
+# Initialize OCR Model
+m = ImgOcr(use_gpu=False, is_efficiency_mode=True)
+
+# Run OCR
+ocr_results = m.ocr("HongKong_ID.png")
+
+# Process OCR results
+formatted_json = extract_hk_id_info(ocr_results)
+
+# Print final JSON output
+print(formatted_json)
+
