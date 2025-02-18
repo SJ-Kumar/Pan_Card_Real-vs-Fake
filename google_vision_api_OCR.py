@@ -1,198 +1,146 @@
 import cv2
-
-def extract_face(image_path, output_path="extracted_face.png"):
-    # Load the image
-    image = cv2.imread(image_path)
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # Load OpenCV's pre-trained Haar cascade for face detection
-    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-
-    # Detect faces in the image
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-
-    if len(faces) == 0:
-        print("No face detected.")
-        return None
-
-    # Extract the first detected face
-    (x, y, w, h) = faces[0]
-    face = image[y:y+h, x:x+w]
-
-    # Save the face image
-    cv2.imwrite(output_path, face)
-    print(f"Face extracted and saved as {output_path}")
-
-    return output_path
-
-# Run face extraction
-face_image = extract_face("HongKong_ID.png")
-
-
-
-ocr_script.py
-
-import sys
+import numpy as np
+import re
 import json
+from flask import Flask, request, jsonify
+from PIL import Image, ImageEnhance
 from imgocr import ImgOcr
 
-def extract_text(image_path):
-    m = ImgOcr(use_gpu=False, is_efficiency_mode=True)
-    result = m.ocr(image_path)
-    
-    # Convert result to key-value JSON format
-    extracted_data = {f"text_{i}": item["text"] for i, item in enumerate(result)}
-    
-    print(json.dumps(extracted_data))  # Print JSON output
-
-if __name__ == "__main__":
-    image_path = sys.argv[1]
-    extract_text(image_path)
-
-OcrService.java
-
-package com.example.imgocr.service;
-
-import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.io.*;
-import java.util.Map;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-@Service
-public class OcrService {
-
-    public Map<String, Object> processImage(MultipartFile file) {
-        try {
-            // Save uploaded file to a temporary location
-            File tempFile = File.createTempFile("uploaded_", ".jpg");
-            file.transferTo(tempFile);
-
-            // Execute Python script
-            ProcessBuilder processBuilder = new ProcessBuilder("python3", "ocr_script.py", tempFile.getAbsolutePath());
-            processBuilder.redirectErrorStream(true);
-            Process process = processBuilder.start();
-
-            // Read Python script output
-            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
-            StringBuilder jsonOutput = new StringBuilder();
-            String line;
-            while ((line = reader.readLine()) != null) {
-                jsonOutput.append(line);
-            }
-
-            // Convert JSON output to Java Map
-            ObjectMapper objectMapper = new ObjectMapper();
-            Map<String, Object> extractedData = objectMapper.readValue(jsonOutput.toString(), Map.class);
-
-            return extractedData;
-
-        } catch (Exception e) {
-            return Map.of("error", "Failed to process image: " + e.getMessage());
-        }
-    }
-}
-
-ImgOcrController.java
-
-package com.example.imgocr.controller;
-
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.multipart.MultipartFile;
-import org.springframework.beans.factory.annotation.Autowired;
-import com.example.imgocr.service.OcrService;
-import java.util.Map;
-
-@RestController
-@RequestMapping("/api/ocr")
-public class ImgOcrController {
-
-    @Autowired
-    private OcrService ocrService;
-
-    @PostMapping("/extract")
-    public ResponseEntity<Map<String, Object>> extractText(@RequestParam("image") MultipartFile file) {
-        if (file.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("error", "No file uploaded"));
-        }
-        
-        Map<String, Object> extractedData = ocrService.processImage(file);
-        return ResponseEntity.ok(extractedData);
-    }
-}
-
-
-
-import uuid
-import json
-from imgocr import ImgOcr
-
-def extract_hk_id_info(ocr_result):
-    extracted_data = {
-        "documentType": "national_identity_card",
-        "issuingCountry": "HKG",
-        "documentNumber": None,
-        "fullName": None,
-        "firstName": None,
-        "middleName": None,
-        "lastName": None,
-        "gender": None,
-        "dateOfBirth": None,
-        "dateOfExpiry": None,
-        "dobSymbol": None,
-        "issuingDate": None,
-        "personalNumber": None
-    }
-
-    # Helper function to clean text
-    def clean_text(text):
-        return text.strip().replace(" ", "")
-
-    for entry in ocr_result:
-        text = entry['text']
-
-        if "PERMANENTIDENTITYCARD" in text or "HONGKONGPERMANENTIDENTITYCARD" in text:
-            extracted_data["documentType"] = "national_identity_card"
-            extracted_data["issuingCountry"] = "HKG"
-        elif text.replace(" ", "").isdigit() and len(text.replace(" ", "")) > 10:
-            extracted_data["personalNumber"] = clean_text(text)
-        elif "-" in text and len(text.split("-")) == 3:
-            if "DBth" in text or "出生日期" in text:
-                extracted_data["dateOfBirth"] = text.replace("DBth", "").strip()
-            else:
-                extracted_data["issuingDate"] = text.strip()
-        elif "(" in text and ")" in text:
-            extracted_data["documentNumber"] = text.strip()
-        elif len(text.split(",")) == 2:
-            extracted_data["lastName"], extracted_data["firstName"] = map(str.strip, text.split(","))
-            extracted_data["fullName"] = extracted_data["firstName"] + " " + extracted_data["lastName"]
-        elif "AZ" in text:
-            extracted_data["dobSymbol"] = text.strip()
-
-    # Construct final JSON output
-    formatted_output = {
-        "documentId": str(uuid.uuid4()),
-        "documentClassification": {
-            "documentType": extracted_data["documentType"],
-            "issuingCountry": extracted_data["issuingCountry"],
-            "version": "2018"
-        },
-        "extractedOcrData": extracted_data
-    }
-
-    return json.dumps(formatted_output, indent=4, ensure_ascii=False)
+# Initialize Flask app
+app = Flask(__name__)
 
 # Initialize OCR Model
 m = ImgOcr(use_gpu=False, is_efficiency_mode=True)
 
-# Run OCR
-ocr_results = m.ocr("HongKong_ID.png")
+def enhance_image(image):
+    """Enhance image contrast and sharpness to improve OCR accuracy."""
+    image = np.array(image)
+    pil_image = Image.fromarray(image)
+    enhancer = ImageEnhance.Contrast(pil_image)
+    image = enhancer.enhance(2)
+    image = np.array(image)
+    kernel = np.array([[0, -1, 0], [-1, 5, -1], [0, -1, 0]])
+    image = cv2.filter2D(image, -1, kernel)
+    return Image.fromarray(image)
 
-# Process OCR results
-formatted_json = extract_hk_id_info(ocr_results)
+def extract_personal_number(ocr_result):
+    """Extract personal number in 'XXXX XXXX XXXX' format."""
+    ocr_text = " ".join([i['text'] for i in ocr_result])
+    ocr_text_cleaned = re.sub(r"\.\d", "", ocr_text)
+    match = re.search(r"(\d{4})[\s]?(\d{4})[\s]?(\d{4})", ocr_text_cleaned)
+    return f"{match.group(1)} {match.group(2)} {match.group(3)}" if match else None
 
-# Print final JSON output
-print(formatted_json)
+def clean_ocr_response(ocr_result):
+    """Extract and clean Chinese full name."""
+    unwanted_labels = ["Date of Birth", "DateofBirth", "Date of Issue", "DateofIssue", "出生日期", "签发日期", "Date", "Issue", "SAMPLE"]
+    cleaned_text = [i['text'] for i in ocr_result if not any(label in i['text'] for label in unwanted_labels)]
+    chinese_text = [text for text in cleaned_text if re.search('[\u4e00-\u9fff]', text)]
+    return min(chinese_text, key=len, default=None)
 
+def extract_document_number(ocr_result):
+    """Extract document number (e.g., 'A123456')"""
+    pattern = r"[A-Za-z][0-9]{6}"
+    last_text = ocr_result[-1]['text'].strip()
+    return last_text if re.match(pattern, last_text) else None
+
+def extract_date_of_birth(ocr_result):
+    """Extract date of birth in 'dd-mm-yyyy' format."""
+    ocr_text = " ".join([i['text'] for i in ocr_result])
+    match = re.search(r"(\d{2}-\d{2}-\d{4})", ocr_text)
+    return match.group(1) if match else None
+
+def extract_gender(ocr_result, date_of_birth):
+    """Extract gender based on the text following the date of birth."""
+    ocr_text = " ".join([i['text'] for i in ocr_result])
+    position = ocr_text.find(date_of_birth)
+    if position != -1:
+        following_text = ocr_text[position + len(date_of_birth):].strip()
+        if re.search(r"男|M", following_text):
+            return "Male"
+        elif re.search(r"女|F", following_text):
+            return "Female"
+    return None
+
+def extract_dob_symbol(ocr_result):
+    """Extract dobSymbol like '***XX'."""
+    ocr_text = " ".join([i['text'] for i in ocr_result])
+    match = re.search(r"\*\*\*([A-Za-z]{2})", ocr_text)
+    return match.group(0) if match else None
+
+def extract_issuing_date(ocr_result):
+    """Extract issuing date in (MM-YY) format."""
+    ocr_text = " ".join([i['text'] for i in ocr_result])
+    match = re.search(r"\d{2}-\d{2}", ocr_text)
+    return match.group(0)[1:-1] if match else None
+
+def extract_english_name(ocr_result):
+    """Extract English full name."""
+    ocr_text = " ".join([i['text'] for i in ocr_result])
+    ocr_text = ocr_text.replace("AMPLE SAMPLE", "").replace("SAMPLE", "").strip()
+    match = re.search(r"([A-Za-z]+),([A-Za-z]+(?:\s[A-Za-z]+)*)", ocr_text)
+    if match:
+        surname, given_name = match.group(1).strip(), match.group(2).strip()
+        return {
+            "englishFullName": f"{surname},{given_name}",
+            "englishGivenName": f"{surname},{given_name}",
+            "firstName": given_name,
+            "englishSurname": surname
+        }
+    return {"englishFullName": None, "englishGivenName": None, "firstName": None, "englishSurname": None}
+
+def extract_chinese_surname(chinese_full_name):
+    """Extract the first character of Chinese full name as surname."""
+    return chinese_full_name[0] if chinese_full_name else None
+
+@app.route('/ocr', methods=['POST'])
+def ocr_endpoint():
+    """API endpoint to receive an image, process OCR, and return JSON response."""
+    if 'image' not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
+
+    image = request.files['image']
+    image = Image.open(image)
+
+    # Enhance image
+    enhanced_image = enhance_image(image)
+
+    # Perform OCR
+    ocr_result = m.ocr(enhanced_image)
+
+    # Extract fields
+    document_number = extract_document_number(ocr_result)
+    chinese_full_name = clean_ocr_response(ocr_result)
+    personal_number = extract_personal_number(ocr_result)
+    dob = extract_date_of_birth(ocr_result)
+    gender = extract_gender(ocr_result, dob)
+    dob_symbol = extract_dob_symbol(ocr_result)
+    issuing_date = extract_issuing_date(ocr_result)
+    english_name = extract_english_name(ocr_result)
+    chinese_surname = extract_chinese_surname(chinese_full_name)
+
+    # Build JSON response
+    final_output = {
+        "documentType": "national_identity_card",
+        "issuingCountry": "HKG",
+        "extractedOcrData": {
+            "documentNumber": document_number,
+            "chineseFullName": chinese_full_name,
+            "chineseGivenName": chinese_full_name,
+            "englishFullName": english_name.get("englishFullName"),
+            "englishGivenName": english_name.get("englishGivenName"),
+            "firstName": english_name.get("firstName"),
+            "englishSurname": english_name.get("englishSurname"),
+            "chineseSurname": chinese_surname,
+            "gender": gender,
+            "dateOfBirth": dob,
+            "dateOfExpiry": None,
+            "dobSymbol": dob_symbol,
+            "issuingDate": issuing_date,
+            "personalNumber": personal_number
+        }
+    }
+
+    return jsonify(final_output)
+
+if __name__ == '__main__':
+    app.run(debug=True, host='0.0.0.0', port=5000)
