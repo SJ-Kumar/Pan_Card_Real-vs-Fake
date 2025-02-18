@@ -1,39 +1,32 @@
 import cv2
-import numpy as np
-from matplotlib import pyplot as plt
 
-def preprocess_image(image_path):
+def extract_face(image_path, output_path="extracted_face.png"):
     # Load the image
     image = cv2.imread(image_path)
-
-    # Convert to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # Apply Gaussian Blur to reduce noise
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    # Load OpenCV's pre-trained Haar cascade for face detection
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
 
-    # Apply Adaptive Thresholding for better contrast
-    thresh = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2
-    )
+    # Detect faces in the image
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
 
-    # Use Morphological Operations to clean noise
-    kernel = np.ones((2, 2), np.uint8)
-    cleaned = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+    if len(faces) == 0:
+        print("No face detected.")
+        return None
 
-    # Display the processed images
-    plt.figure(figsize=(10, 4))
-    plt.subplot(1, 3, 1), plt.imshow(gray, cmap='gray'), plt.title("Grayscale")
-    plt.subplot(1, 3, 2), plt.imshow(thresh, cmap='gray'), plt.title("Thresholded")
-    plt.subplot(1, 3, 3), plt.imshow(cleaned, cmap='gray'), plt.title("Denoised")
-    plt.show()
+    # Extract the first detected face
+    (x, y, w, h) = faces[0]
+    face = image[y:y+h, x:x+w]
 
-    return cleaned
+    # Save the face image
+    cv2.imwrite(output_path, face)
+    print(f"Face extracted and saved as {output_path}")
 
-# Preprocess and save the cleaned image
-preprocessed_image = preprocess_image("HongKong_ID.png")
-cv2.imwrite("preprocessed_id.png", preprocessed_image)
+    return output_path
 
+# Run face extraction
+face_image = extract_face("HongKong_ID.png")
 
 
 
