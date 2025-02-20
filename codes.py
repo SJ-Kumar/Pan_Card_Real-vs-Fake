@@ -314,3 +314,64 @@ public class CorsConfig {
         return new CorsFilter(source);
     }
 }
+
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import java.io.IOException;
+import java.util.Map;
+import com.hk.ocr.service.OcrService;
+
+@RestController
+@RequestMapping("/api/ocr")
+public class OcrController {
+
+    private final OcrService ocrService;
+
+    public OcrController(OcrService ocrService) {
+        this.ocrService = ocrService;
+    }
+
+    @PostMapping(value = "/process", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<Map<String, Object>> processOcr(@RequestBody byte[] fileData) {
+        try {
+            Map<String, Object> extractedData = ocrService.processImage(fileData);
+            return ResponseEntity.ok(extractedData);
+        } catch (IOException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", "Failed to process image"));
+        }
+    }
+}
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.Map;
+import org.springframework.stereotype.Service;
+import com.hk.ocr.utils.FileStorageUtil;
+
+@Service
+public class OcrService {
+
+    private final PythonOcrClient pythonOcrClient;
+
+    public OcrService(PythonOcrClient pythonOcrClient) {
+        this.pythonOcrClient = pythonOcrClient;
+    }
+
+    public Map<String, Object> processImage(byte[] fileData) throws IOException {
+        // Convert byte array to temporary file
+        File tempFile = File.createTempFile("upload_", ".jpg");
+        try (FileOutputStream fos = new FileOutputStream(tempFile)) {
+            fos.write(fileData);
+        }
+
+        // Call OCR script and process
+        Map<String, Object> extractedData = pythonOcrClient.runOcrScript(tempFile);
+
+        // Delete file after processing
+        tempFile.delete();
+
+        return extractedData;
+    }
+}
