@@ -113,70 +113,58 @@ export default OcrUpload;
 
 
 
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.web.reactive.function.server.ServerResponse;
-import org.springframework.http.codec.multipart.FilePart;
-import reactor.core.publisher.Mono;
-import java.util.Map;
+import sys
+import json
+import cv2
+import numpy as np
+from imgocr import ImgOcr
 
-@RestController
-@RequestMapping("/api/ocr")
-public class OcrController {
+# Initialize OCR Model once (Reuse instead of reloading on every request)
+ocr_model = ImgOcr(use_gpu=True, is_efficiency_mode=True)
 
-    private final OcrService ocrService;
+def process_image(image_bytes):
+    try:
+        np_image = np.frombuffer(image_bytes, np.uint8)
+        image = cv2.imdecode(np_image, cv2.IMREAD_COLOR)
 
-    public OcrController(OcrService ocrService) {
-        this.ocrService = ocrService;
-    }
+        # Apply simple enhancement instead of costly operations
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        ocr_result = ocr_model.ocr(gray)
 
-    @PostMapping(value = "/process", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    public Mono<ResponseEntity<Map<String, Object>>> processOcr(@RequestPart("file") Mono<FilePart> filePartMono) {
-        return filePartMono
-                .flatMap(ocrService::processImage)
-                .map(ResponseEntity::ok)
-                .onErrorResume(e -> {
-                    Map<String, Object> errorResponse = new HashMap<>();
-                    errorResponse.put("error", "Failed to process image: " + e.getMessage());
-                    return Mono.just(ResponseEntity.badRequest().body(errorResponse));
-                });
-    }
-}
+        return json.dumps({"ocr_data": ocr_result})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
+if __name__ == "__main__":
+    image_bytes = sys.stdin.buffer.read()  # Read image bytes from Java
+    print(process_image(image_bytes))
 
 
-import org.springframework.stereotype.Service;
-import org.springframework.http.codec.multipart.FilePart;
-import reactor.core.publisher.Mono;
+public Mono<Map<String, Object>> runOcrScript(byte[] imageBytes) {
+    return Mono.fromCallable(() -> {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("python3", "ocr_processor.py");
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
 
-import java.io.File;
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+            // Write image bytes directly to Python (Avoid disk I/O)
+            OutputStream os = process.getOutputStream();
+            os.write(imageBytes);
+            os.flush();
+            os.close();
 
-@Service
-public class OcrService {
+            // Read response from Python
+            BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            StringBuilder output = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line);
+            }
+            process.waitFor();
 
-    private final PythonOcrClient pythonOcrClient;
-
-    public OcrService(PythonOcrClient pythonOcrClient) {
-        this.pythonOcrClient = pythonOcrClient;
-    }
-
-    public Mono<Map<String, Object>> processImage(FilePart filePart) {
-        return Mono.fromCallable(() -> File.createTempFile("upload_", ".jpg"))
-                .flatMap(tempFile ->
-                        filePart.transferTo(tempFile)
-                                .then(Mono.fromCallable(() -> {
-                                    Map<String, Object> result = pythonOcrClient.runOcrScript(tempFile);
-                                    tempFile.delete(); // Clean up after processing
-                                    return result;
-                                }))
-                )
-                .onErrorResume(e -> {
-                    Map<String, Object> errorResponse = new HashMap<>();
-                    errorResponse.put("error", "Failed to process image: " + e.getMessage());
-                    return Mono.just(errorResponse);
-                });
-    }
+            return new ObjectMapper().readValue(output.toString(), Map.class);
+        } catch (Exception e) {
+            return Map.of("error", "OCR process failed: " + e.getMessage());
+        }
+    }).subscribeOn(Schedulers.boundedElastic()); // Run OCR in a separate thread
 }
