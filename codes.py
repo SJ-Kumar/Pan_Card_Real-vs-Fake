@@ -262,4 +262,24 @@ ocr.python.script=python/ocr_processor.py
 ocr.python.executable=python
 
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+@PostMapping("/process")
+public ResponseEntity<Map<String, Object>> processOcr(@RequestParam("file") MultipartFile file) {
+    Logger logger = LoggerFactory.getLogger(OcrController.class);
 
+    if (file.isEmpty()) {
+        logger.error("Received an empty file.");
+        return ResponseEntity.badRequest().body(Map.of("error", "No file uploaded"));
+    }
+
+    logger.info("Received file: " + file.getOriginalFilename() + " (" + file.getSize() + " bytes)");
+
+    try {
+        Map<String, Object> extractedData = ocrService.processImage(file);
+        return ResponseEntity.ok(extractedData);
+    } catch (IOException e) {
+        logger.error("Failed to process image", e);
+        return ResponseEntity.badRequest().body(Map.of("error", "Failed to process image"));
+    }
+}
