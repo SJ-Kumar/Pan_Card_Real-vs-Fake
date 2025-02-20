@@ -109,3 +109,157 @@ const OcrUpload = () => {
 };
 
 export default OcrUpload;
+
+
+
+
+
+package com.hk.ocr.controller;
+
+import com.hk.ocr.service.OcrService;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Mono;
+
+import java.util.Map;
+
+@RestController
+@RequestMapping("/api/ocr")
+public class OcrController {
+
+    private final OcrService ocrService;
+
+    public OcrController(OcrService ocrService) {
+        this.ocrService = ocrService;
+    }
+
+    @PostMapping("/process")
+    public Mono<ResponseEntity<Map<String, Object>>> processOcr(@RequestPart("file") Mono<MultipartFile> fileMono) {
+        return fileMono.flatMap(file -> ocrService.processImage(file)
+                .map(ResponseEntity::ok)
+                .onErrorResume(e -> Mono.just(ResponseEntity.badRequest()
+                        .body(Map.of("error", "Failed to process image"))))
+        );
+    }
+}
+
+
+
+package com.hk.ocr.service;
+
+import com.hk.ocr.utils.FileStorageUtil;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+import reactor.core.publisher.Mono;
+
+import java.io.File;
+import java.util.Map;
+
+@Service
+public class OcrService {
+
+    private final PythonOcrClient pythonOcrClient;
+
+    public OcrService(PythonOcrClient pythonOcrClient) {
+        this.pythonOcrClient = pythonOcrClient;
+    }
+
+    public Mono<Map<String, Object>> processImage(MultipartFile file) {
+        return Mono.fromCallable(() -> {
+            File tempFile = FileStorageUtil.saveFile(file);
+            Map<String, Object> extractedData = pythonOcrClient.runOcrScript(tempFile);
+            tempFile.delete();
+            return extractedData;
+        });
+    }
+}
+
+
+
+package com.hk.ocr.service;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import reactor.core.publisher.Mono;
+
+import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class PythonOcrClient {
+
+    @Value("${ocr.python.executable}")
+    private String pythonExecutable;
+
+    @Value("${ocr.python.script}")
+    private String pythonScriptPath;
+
+    public Mono<Map<String, Object>> runOcrScript(File imageFile) {
+        return Mono.fromCallable(() -> {
+            Map<String, Object> result = new HashMap<>();
+            try {
+                ProcessBuilder pb = new ProcessBuilder(pythonExecutable, pythonScriptPath, imageFile.getAbsolutePath());
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                StringBuilder output = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line);
+                }
+
+                process.waitFor();
+                result.put("ocr_data", output.toString());
+
+            } catch (Exception e) {
+                result.put("error", "Failed to execute OCR script");
+            }
+            return result;
+        });
+    }
+}
+
+
+
+package com.hk.ocr.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.reactive.CorsWebFilter;
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource;
+
+@Configuration
+public class CorsConfig {
+
+    @Bean
+    public CorsWebFilter corsWebFilter() {
+        CorsConfiguration config = new CorsConfiguration();
+        config.addAllowedOrigin("*");
+        config.addAllowedMethod("*");
+        config.addAllowedHeader("*");
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+
+        return new CorsWebFilter(source);
+    }
+}
+
+
+spring.application.name=ocr-service
+server.port=8080
+
+# Set file upload limits
+spring.servlet.multipart.max-file-size=5MB
+spring.servlet.multipart.max-request-size=5MB
+
+# Path to Python script
+ocr.python.script=python/ocr_processor.py
+ocr.python.executable=python
+
+
+
