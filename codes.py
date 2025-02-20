@@ -294,7 +294,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.CorsFilter;
 
-import java.util.List;
+import java.util.Arrays;
 
 @Configuration
 public class CorsConfig {
@@ -305,10 +305,10 @@ public class CorsConfig {
         CorsConfiguration config = new CorsConfiguration();
         
         config.setAllowCredentials(true); // Allow credentials (cookies, authentication)
-        config.setAllowedOrigins(List.of("*")); // Allow all origins
-        config.setAllowedHeaders(List.of("*")); // Allow all headers
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS")); // Allow all methods
-        config.setExposedHeaders(List.of("*")); // Expose all response headers
+        config.setAllowedOrigins(Arrays.asList("*")); // Allow all origins
+        config.setAllowedHeaders(Arrays.asList("*")); // Allow all headers
+        config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS")); // Allow all methods
+        config.setExposedHeaders(Arrays.asList("*")); // Expose all response headers
 
         source.registerCorsConfiguration("/**", config);
         return new CorsFilter(source);
