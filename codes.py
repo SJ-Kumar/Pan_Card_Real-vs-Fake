@@ -116,13 +116,9 @@ export default OcrUpload;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import org.springframework.web.reactive.function.server.ServerRequest;
 import org.springframework.web.reactive.function.server.ServerResponse;
-import org.springframework.web.multipart.MultipartFile;
-import reactor.core.publisher.Mono;
-import com.hk.ocr.service.OcrService;
 import org.springframework.http.codec.multipart.FilePart;
-
+import reactor.core.publisher.Mono;
 import java.util.Map;
 
 @RestController
@@ -138,9 +134,13 @@ public class OcrController {
     @PostMapping(value = "/process", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mono<ResponseEntity<Map<String, Object>>> processOcr(@RequestPart("file") Mono<FilePart> filePartMono) {
         return filePartMono
-                .flatMap(filePart -> ocrService.processImage(filePart))
+                .flatMap(ocrService::processImage)
                 .map(ResponseEntity::ok)
-                .onErrorResume(e -> Mono.just(ResponseEntity.badRequest().body(Map.of("error", "Failed to process image"))));
+                .onErrorResume(e -> {
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("error", "Failed to process image: " + e.getMessage());
+                    return Mono.just(ResponseEntity.badRequest().body(errorResponse));
+                });
     }
 }
 
@@ -151,6 +151,7 @@ import reactor.core.publisher.Mono;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 @Service
@@ -163,14 +164,19 @@ public class OcrService {
     }
 
     public Mono<Map<String, Object>> processImage(FilePart filePart) {
-        try {
-            File tempFile = File.createTempFile("upload_", ".jpg");
-
-            return filePart.transferTo(tempFile)
-                    .then(Mono.fromCallable(() -> pythonOcrClient.runOcrScript(tempFile)))
-                    .doFinally(signalType -> tempFile.delete()); // Delete temp file after processing
-        } catch (IOException e) {
-            return Mono.error(new RuntimeException("Failed to save file", e));
-        }
+        return Mono.fromCallable(() -> File.createTempFile("upload_", ".jpg"))
+                .flatMap(tempFile ->
+                        filePart.transferTo(tempFile)
+                                .then(Mono.fromCallable(() -> {
+                                    Map<String, Object> result = pythonOcrClient.runOcrScript(tempFile);
+                                    tempFile.delete(); // Clean up after processing
+                                    return result;
+                                }))
+                )
+                .onErrorResume(e -> {
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("error", "Failed to process image: " + e.getMessage());
+                    return Mono.just(errorResponse);
+                });
     }
 }
