@@ -1,10 +1,15 @@
-import sys
+from flask import Flask, request, jsonify
 import cv2
 import numpy as np
 import re
+import tempfile
 import json
 from PIL import Image, ImageEnhance
 from imgocr import ImgOcr
+import os
+
+# Initialize Flask App
+app = Flask(__name__)
 
 # Initialize OCR Model
 m = ImgOcr(use_gpu=False, is_efficiency_mode=True)
@@ -92,6 +97,37 @@ def extract_chinese_surname(chinese_full_name):
     """Extract the first character of Chinese full name as surname."""
     return chinese_full_name[0] if chinese_full_name else None
 
+def extract_face(image_path):
+    """Extract face from image and save it."""
+    image = cv2.imread(image_path)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    
+    face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(40, 40))
+
+    if len(faces) == 0:
+        return None  # No face found
+
+    # Use first detected face
+    (x, y, w, h) = faces[0]
+    face = image[y:y+h, x:x+w]
+
+    # Create output directory if not exists
+    output_folder = "extracted_faces"
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Get the highest existing face number
+    existing_files = [f for f in os.listdir(output_folder) if f.startswith("extracted_face_") and f.endswith(".png")]
+    existing_numbers = [int(f.split("_")[-1].split(".")[0]) for f in existing_files if f.split("_")[-1].split(".")[0].isdigit()]
+    
+    next_index = max(existing_numbers) + 1 if existing_numbers else 1
+    output_path = os.path.join(output_folder, f"extracted_face_{next_index}.png")
+
+    # Save the extracted face
+    cv2.imwrite(output_path, face)
+
+    return output_path  # Return the new file path
+
 def process_image(image_path):
     """Process image and extract OCR data."""
     try:
@@ -111,6 +147,9 @@ def process_image(image_path):
         issuing_date = extract_issuing_date(ocr_result)
         english_name = extract_english_name(ocr_result)
         chinese_surname = extract_chinese_surname(chinese_full_name)
+        
+        # Extract face
+        face_path = extract_face(image_path)
 
         # Build JSON response
         final_output = {
@@ -140,10 +179,30 @@ def process_image(image_path):
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print(json.dumps({"error": "No image path provided"}))
-        sys.exit(1)
+@app.route('/process', methods=['POST'])
+def ocr_process():
+    if 'file' not in request.files:
+        return jsonify({"error": "No file provided"}), 400
 
-    image_path = sys.argv[1]
-    print(process_image(image_path))
+    file = request.files['file']
+
+    # Use a system-independent temp directory
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, file.filename)
+    
+    try:
+        file.save(temp_path)  # Save uploaded file
+        
+        # Call your OCR processing function
+        ocr_result = process_image(temp_path)
+
+        os.remove(temp_path)  # Clean up the temporary file after processing
+
+        # Ensure proper JSON response
+        return jsonify(json.loads(ocr_result))
+
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5001, debug=True)
