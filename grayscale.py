@@ -2,9 +2,9 @@ import cv2
 import numpy as np
 import os
 
-def convert_to_xerox_variants(image_path, output_folder):
-    """Generates 10 different Xerox-like images mimicking real-world photocopy scenarios."""
-    
+def convert_to_color_printout_variants(image_path, output_folder):
+    """Generates 10 different Color Printout-like images mimicking real-world print scenarios."""
+
     # Ensure output folder exists
     os.makedirs(output_folder, exist_ok=True)
 
@@ -14,53 +14,59 @@ def convert_to_xerox_variants(image_path, output_folder):
         print("Error: Image not found!")
         return
 
-    # Convert to grayscale
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    color_variants = {}
 
-    xerox_variants = {}
+    # 1. **Normal Color Printout**
+    color_variants["color_printout_normal.png"] = cv2.convertScaleAbs(img, alpha=1.0, beta=-10)
 
-    # 1. **Normal Xerox Effect** (Base version)
-    xerox_variants["xerox_normal.png"] = cv2.convertScaleAbs(gray, alpha=1.2, beta=-30)
+    # 2. **Faded Colors** (Low saturation)
+    hsv_faded = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hsv_faded[:, :, 1] = hsv_faded[:, :, 1] * 0.5  # Reduce saturation
+    color_variants["color_printout_faded.png"] = cv2.cvtColor(hsv_faded, cv2.COLOR_HSV2BGR)
 
-    # 2. **High Contrast Xerox**
-    xerox_variants["xerox_high_contrast.png"] = cv2.convertScaleAbs(gray, alpha=1.5, beta=-40)
+    # 3. **Oversaturated Colors** (High ink usage)
+    hsv_saturated = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hsv_saturated[:, :, 1] = np.clip(hsv_saturated[:, :, 1] * 1.5, 0, 255)
+    color_variants["color_printout_oversaturated.png"] = cv2.cvtColor(hsv_saturated, cv2.COLOR_HSV2BGR)
 
-    # 3. **Low Ink Effect** (Lighter areas, faded look)
-    xerox_variants["xerox_low_ink.png"] = cv2.convertScaleAbs(gray, alpha=0.8, beta=20)
+    # 4. **Low Contrast Print**
+    low_contrast = cv2.convertScaleAbs(img, alpha=0.8, beta=10)
+    color_variants["color_printout_low_contrast.png"] = low_contrast
 
-    # 4. **Overexposed Copy** (Too bright)
-    xerox_variants["xerox_overexposed.png"] = cv2.convertScaleAbs(gray, alpha=1.0, beta=60)
+    # 5. **High Contrast Print**
+    high_contrast = cv2.convertScaleAbs(img, alpha=1.5, beta=20)
+    color_variants["color_printout_high_contrast.png"] = high_contrast
 
-    # 5. **Underexposed Copy** (Too dark)
-    xerox_variants["xerox_underexposed.png"] = cv2.convertScaleAbs(gray, alpha=1.0, beta=-60)
+    # 6. **Color Smudges** (Adding blur to mimic smudges)
+    smudged = cv2.GaussianBlur(img, (7, 7), 2)
+    color_variants["color_printout_smudged.png"] = smudged
 
-    # 6. **Blurred Copy** (Simulating motion blur or scanning issues)
-    xerox_variants["xerox_blurred.png"] = cv2.GaussianBlur(gray, (5, 5), 2)
+    # 7. **Low Ink Print** (Desaturated and brighter)
+    hsv_low_ink = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    hsv_low_ink[:, :, 1] = hsv_low_ink[:, :, 1] * 0.4  # Lower saturation
+    hsv_low_ink[:, :, 2] = hsv_low_ink[:, :, 2] * 1.2  # Increase brightness
+    color_variants["color_printout_low_ink.png"] = cv2.cvtColor(hsv_low_ink, cv2.COLOR_HSV2BGR)
 
-    # 7. **Noisy Copy** (Simulating poor-quality Xerox machines)
-    noisy = gray.copy()
-    noise = np.random.randint(0, 50, noisy.shape, dtype='uint8')
-    xerox_variants["xerox_noisy.png"] = cv2.add(noisy, noise)
+    # 8. **Color Noise Print** (Noisy print artifacts)
+    noisy = img.copy()
+    noise = np.random.randint(0, 30, noisy.shape, dtype='uint8')
+    color_variants["color_printout_noisy.png"] = cv2.add(noisy, noise)
 
-    # 8. **Skewed/Rotated Copy**
-    rows, cols = gray.shape
-    M = cv2.getRotationMatrix2D((cols//2, rows//2), 5, 1)  # Rotate by 5 degrees
-    xerox_variants["xerox_skewed.png"] = cv2.warpAffine(gray, M, (cols, rows), borderMode=cv2.BORDER_CONSTANT, borderValue=255)
+    # 9. **Skewed/Rotated Print**
+    rows, cols, _ = img.shape
+    M = cv2.getRotationMatrix2D((cols // 2, rows // 2), 3, 1)  # Rotate by 3 degrees
+    color_variants["color_printout_skewed.png"] = cv2.warpAffine(img, M, (cols, rows), borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
 
-    # 9. **Ink Smudge Effect** (Horizontal smudge)
-    smudged = cv2.GaussianBlur(gray, (15, 3), 0)
-    xerox_variants["xerox_smudged.png"] = smudged
+    # 10. **Striped Print** (Horizontal lines mimicking printing errors)
+    striped = img.copy()
+    for i in range(0, rows, 30):
+        cv2.line(striped, (0, i), (cols, i), (0, 0, 0), 1)
+    color_variants["color_printout_striped.png"] = striped
 
-    # 10. **Vertical Streaks** (Mimicking poor rollers)
-    streaks = gray.copy()
-    for i in range(0, cols, 20):  # Add streaks every 20 pixels
-        cv2.line(streaks, (i, 0), (i, rows), (0, 0, 0), 1)
-    xerox_variants["xerox_streaks.png"] = streaks
-
-    # Save all images
-    for filename, img_data in xerox_variants.items():
+    # Save all generated images
+    for filename, img_data in color_variants.items():
         cv2.imwrite(os.path.join(output_folder, filename), img_data)
         print(f"Saved {filename}")
 
-
-convert_to_xerox_variants("latest.png", "images")
+# Example usage
+convert_to_color_printout_variants("latest.png", "color_printout_images")
